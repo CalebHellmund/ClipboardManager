@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 #include "CircularBuffer.h"
+#define ENABLE_DEBUG 0
 
 using namespace std;
 void copyToClipboard(const wstring& tocopy);
@@ -14,14 +15,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     // Step 1: Register window class
     const wchar_t CLASS_NAME[] = L"ClipboardListenerWindow";
     CircularBuffer<wstring> clipboard(10);
-    // For debugging
-    AllocConsole();
 
-    FILE* fp;
-    _wfreopen_s(&fp, L"CONOUT$", L"w", stdout);
-    _wfreopen_s(&fp, L"CONOUT$", L"w", stderr);
-    _wfreopen_s(&fp, L"CONIN$", L"r", stdin);
-    std::wcout << L"Clipboard listener started...\n";
+    #if ENABLE_DEBUG
+
+        AllocConsole();
+
+        FILE* fp;
+        _wfreopen_s(&fp, L"CONOUT$", L"w", stdout);
+        _wfreopen_s(&fp, L"CONOUT$", L"w", stderr);
+        _wfreopen_s(&fp, L"CONIN$", L"r", stdin);
+        std::wcout << L"Clipboard listener started...\n";
+
+    #endif
+
 
     WNDCLASS wc = {};
     wc.lpfnWndProc = WindowProc;
@@ -118,7 +124,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
         if (!clipText.empty()) {
             clipboard->addElement(clipText);
-            std::wcout << L"[Clipboard Update] " << clipText << std::endl;
+            #if ENABLE_DEBUG
+                std::wcout << L"[Clipboard Update] " << clipText << std::endl;
+            #endif
         }
         return 0;
     }
@@ -136,7 +144,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             std::wstring entry = clipboard->getElement(index);
             copyToClipboard(entry);
 
-            std::wcout << L"[PASTE HOTKEY] Ctrl+Shift+" << ((index + 1) % 10) << L" - " << entry << std::endl;
+            #if ENABLE_DEBUG
+                std::wcout << L"[PASTE HOTKEY] Ctrl+Shift+" << ((index + 1) % 10) << L" - " << entry << std::endl;
+            #endif
 
             // (Optional) trigger paste in focused window
             keybd_event(VK_CONTROL, 0, 0, 0);
