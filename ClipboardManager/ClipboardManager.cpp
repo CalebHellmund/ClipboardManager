@@ -5,21 +5,60 @@
 
 using namespace std;
 void copyToClipboard(const wstring& tocopy);
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 wstring getFromClipboard();
+bool ignoreNextClipboard = false;
 
-int main(){
-    wstring test = L"This also works";
-    CircularBuffer<wstring> clipboard(2);
-    clipboard.addElement(L"Hello ");
-    clipboard.addElement(L"World");
-    wcout << clipboard.getElement(0) << clipboard.getElement(1) << endl;
-    clipboard.addElement(L", this works!");
-    wcout << clipboard.getElement(0) << clipboard.getElement(1) << endl;
-    copyToClipboard(test);
-    wcout << getFromClipboard() << endl;
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
+    // Step 1: Register window class
+    const wchar_t CLASS_NAME[] = L"ClipboardListenerWindow";
+    CircularBuffer<wstring> clipboard(10);
+    // For debugging
+    AllocConsole();
+
+    FILE* fp;
+    _wfreopen_s(&fp, L"CONOUT$", L"w", stdout);
+    _wfreopen_s(&fp, L"CONOUT$", L"w", stderr);
+    _wfreopen_s(&fp, L"CONIN$", L"r", stdin);
+    std::wcout << L"Clipboard listener started...\n";
+
+    WNDCLASS wc = {};
+    wc.lpfnWndProc = WindowProc;
+    wc.hInstance = hInstance;
+    wc.lpszClassName = CLASS_NAME;
+
+    RegisterClass(&wc);
+
+    // Step 2: Create invisible message-only window
+    HWND hwnd = CreateWindowEx(
+        0, CLASS_NAME, L"", 0,
+        0, 0, 0, 0,
+        HWND_MESSAGE, nullptr, hInstance, &clipboard
+    );
+
+    if (!hwnd) return 1;
+
+    for (int i = 0; i < 10; ++i) { //Adds hotkeys
+        RegisterHotKey(hwnd, i, MOD_CONTROL | MOD_SHIFT, '0' + ((i + 1) % 10));
+    }
+
+
+    // Step 3: Register as clipboard listener
+    AddClipboardFormatListener(hwnd);
+
+    // Step 4: Message loop
+    MSG msg = {};
+    while (GetMessage(&msg, nullptr, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+
     return 0;
 }
+
 void copyToClipboard(const wstring& tocopy) {
+    ignoreNextClipboard = true;
     OpenClipboard(NULL);
     EmptyClipboard();
     size_t sizeInBytes = (tocopy.size() + 1) * sizeof(wchar_t);
@@ -34,6 +73,7 @@ void copyToClipboard(const wstring& tocopy) {
         CloseClipboard();
     }
 }
+
 wstring getFromClipboard() {
     OpenClipboard(NULL);
     wstring input;
@@ -52,4 +92,60 @@ wstring getFromClipboard() {
 
     CloseClipboard();
     return input;
+}
+
+
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    if (uMsg == WM_NCCREATE) {
+        // This runs once when the window is created
+        CREATESTRUCT* cs = reinterpret_cast<CREATESTRUCT*>(lParam);
+        void* userData = cs->lpCreateParams;
+
+        // Store your pointer in the window's user data slot
+        SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(userData));
+        return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    }
+
+    // Retrieve the pointer on later messages
+    auto* clipboard = reinterpret_cast<CircularBuffer<wstring>*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
+    switch (uMsg) {
+    case WM_CLIPBOARDUPDATE: {
+        if (ignoreNextClipboard) {
+            ignoreNextClipboard = false;  // reset
+            return 0;
+        }
+        std::wstring clipText = getFromClipboard();
+
+        if (!clipText.empty()) {
+            clipboard->addElement(clipText);
+            std::wcout << L"[Clipboard Update] " << clipText << std::endl;
+        }
+        return 0;
+    }
+
+    case WM_DESTROY: {
+        RemoveClipboardFormatListener(hwnd);
+        PostQuitMessage(0);
+        return 0;
+    }
+    case WM_HOTKEY: {
+        int index = static_cast<int>(wParam);  // hotkey ID is index 0–9
+        auto* clipboard = reinterpret_cast<CircularBuffer<wstring>*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
+
+        if (clipboard && index >= 0 && index < clipboard->size()) {
+            std::wstring entry = clipboard->getElement(index);
+            copyToClipboard(entry);
+
+            std::wcout << L"[PASTE HOTKEY] Ctrl+Shift+" << ((index + 1) % 10) << L" - " << entry << std::endl;
+
+            // (Optional) trigger paste in focused window
+            keybd_event(VK_CONTROL, 0, 0, 0);
+            keybd_event('V', 0, 0, 0);
+            keybd_event('V', 0, KEYEVENTF_KEYUP, 0);
+            keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
+        }
+        return 0;
+    }
+    }
+    return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
