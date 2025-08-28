@@ -8,6 +8,7 @@ using namespace std;
 void copyToClipboard(const wstring& tocopy);
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 wstring getFromClipboard();
+
 bool ignoreNextClipboard = false;
 
 
@@ -65,7 +66,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 void copyToClipboard(const wstring& tocopy) {
     ignoreNextClipboard = true;
-    OpenClipboard(NULL);
+
+    if (!OpenClipboard(nullptr)) return;
+
+
     EmptyClipboard();
     size_t sizeInBytes = (tocopy.size() + 1) * sizeof(wchar_t);
     HGLOBAL HG = GlobalAlloc(GMEM_MOVEABLE, sizeInBytes);
@@ -81,7 +85,8 @@ void copyToClipboard(const wstring& tocopy) {
 }
 
 wstring getFromClipboard() {
-    OpenClipboard(NULL);
+    if (!OpenClipboard(nullptr)) return L"";
+
     wstring input;
     if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) {
         CloseClipboard();
@@ -109,7 +114,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
         // Store your pointer in the window's user data slot
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(userData));
-        return DefWindowProc(hwnd, uMsg, wParam, lParam);
+        return TRUE; 
     }
 
     // Retrieve the pointer on later messages
@@ -141,14 +146,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         auto* clipboard = reinterpret_cast<CircularBuffer<wstring>*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
 
         if (clipboard && index >= 0 && index < clipboard->size()) {
-            std::wstring entry = clipboard->getElement(index);
+            int bufferIndex = (clipboard->size() - 1 - index + clipboard->size()) % clipboard->size();
+            std::wstring entry = clipboard->getElement(bufferIndex);
             copyToClipboard(entry);
 
             #if ENABLE_DEBUG
                 std::wcout << L"[PASTE HOTKEY] Ctrl+Shift+" << ((index + 1) % 10) << L" - " << entry << std::endl;
             #endif
 
-            // (Optional) trigger paste in focused window
             keybd_event(VK_CONTROL, 0, 0, 0);
             keybd_event('V', 0, 0, 0);
             keybd_event('V', 0, KEYEVENTF_KEYUP, 0);
